@@ -9,9 +9,16 @@ on:
 permissions:
   contents: read
   actions: read
-  security-events: write    # Required for CodeQL analysis upload
-  checks: write             # Required for uploading test results as checks (if used)
-  # issues: write           # Only if you use actions that create issues
+  security-events: write
+  checks: write
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  SMTP_SERVER: 'smtp.sendgrid.net'
+  SMTP_PORT: '587'
+  SMTP_USERNAME: 'apikey'
+  SMTP_TO: 'brijesh.patel@gmail.com'
+  SMTP_FROM: 'brijesh.patel@gmail.com'
 
 jobs:
   build:
@@ -29,7 +36,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '8.0.x'
+        dotnet-version: ${{ env.DOTNET_VERSION }}
     - name: Restore dependencies
       run: dotnet restore
     - name: Build solution
@@ -70,13 +77,13 @@ jobs:
       if: failure()
       uses: dawidd6/action-send-mail@v3
       with:
-        server_address: smtp.sendgrid.net
-        server_port: 587
-        username: ${{ secrets.SMTP_USERNAME }}
+        server_address: ${{ env.SMTP_SERVER }}
+        server_port: ${{ env.SMTP_PORT }}
+        username: ${{ env.SMTP_USERNAME }}
         password: ${{ secrets.SMTP_PASSWORD }}
         subject: "CI/CD Failure: ${{ github.workflow }} on ${{ github.ref }}"
-        to: brijesh.patel@gmail.com
-        from: brijesh.patel@gmail.com
+        to: ${{ env.SMTP_TO }}
+        from: ${{ env.SMTP_FROM }}
         body: |
           The CI/CD pipeline failed for ${{ github.repository }}.
           Workflow: ${{ github.workflow }}
@@ -93,7 +100,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '8.0.x'
+        dotnet-version: ${{ env.DOTNET_VERSION }}
     - name: Run dotnet format
       run: dotnet format --verify-no-changes
     - name: Check for vulnerable packages
@@ -110,7 +117,7 @@ jobs:
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '8.0.x'
+        dotnet-version: ${{ env.DOTNET_VERSION }}
     - name: Secret scanning
       uses: github/codeql-action/init@v3
       with:
