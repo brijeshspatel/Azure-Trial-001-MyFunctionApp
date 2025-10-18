@@ -53,7 +53,7 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore
     - name: Run unit tests with coverage
-      run: dotnet test --no-build --configuration Release --collect:"XPlat Code Coverage"
+      run: dotnet test --configuration Release --collect:"XPlat Code Coverage"
     - name: Publish test results
       uses: actions/upload-artifact@v4
       with:
