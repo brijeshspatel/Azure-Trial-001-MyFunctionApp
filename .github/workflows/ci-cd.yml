@@ -203,10 +203,10 @@ jobs:
         COVERAGE_PERCENT=$(echo "$COVERAGE * 100" | bc)
         echo "Code coverage: $COVERAGE_PERCENT%"
         if (( $(echo "$COVERAGE_PERCENT < ${{ env.COVERAGE_THRESHOLD }}" | bc -l) )); then
-          echo "? Coverage $COVERAGE_PERCENT% is below threshold ${{ env.COVERAGE_THRESHOLD }}%"
+          echo "❌ Coverage $COVERAGE_PERCENT% is below threshold ${{ env.COVERAGE_THRESHOLD }}%"
           exit 1
         fi
-        echo "? Coverage threshold met"
+        echo "✅ Coverage threshold met"
 
   # ============================================
   # Code Quality & Security Analysis
@@ -274,11 +274,11 @@ jobs:
         echo "Checking for vulnerable NuGet packages..."
         dotnet list package --vulnerable --include-transitive 2>&1 | tee vulnerable-packages.txt
         if grep -q "has the following vulnerable packages" vulnerable-packages.txt; then
-          echo "? Vulnerable packages found!"
+          echo "❌ Vulnerable packages found!"
           cat vulnerable-packages.txt
           exit 1
         fi
-        echo "? No vulnerable packages found"
+        echo "✅ No vulnerable packages found"
     
     - name: Check for deprecated packages
       run: |
@@ -440,7 +440,7 @@ jobs:
     steps:
     - name: All checks passed
       run: |
-        echo "? All quality gates passed!"
+        echo "✅ All quality gates passed!"
         echo "Build version: ${{ needs.build.outputs.version }}"
         echo "Artifact: ${{ needs.build.outputs.artifact-name }}"
 
@@ -598,18 +598,31 @@ jobs:
     if: failure()
     
     steps:
-    - name: Send failure notification
+    - name: Check if email notifications are configured
+      id: check-email
+      run: |
+        if [ -n "${{ secrets.SMTP_PASSWORD }}" ] && [ -n "${{ secrets.SMTP_TO }}" ] && [ -n "${{ secrets.SMTP_FROM }}" ]; then
+          echo "configured=true" >> $GITHUB_OUTPUT
+        else
+          echo "configured=false" >> $GITHUB_OUTPUT
+          echo "⚠️ Email notifications not configured. Skipping email notification."
+          echo "To enable: Set SMTP_PASSWORD, SMTP_TO, and SMTP_FROM secrets"
+        fi
+    
+    - name: Send failure notification via email
+      if: steps.check-email.outputs.configured == 'true'
       uses: dawidd6/action-send-mail@v3
+      continue-on-error: true
       with:
         server_address: smtp.sendgrid.net
         server_port: 587
         username: apikey
         password: ${{ secrets.SMTP_PASSWORD }}
-        subject: "? CI/CD Failure: ${{ github.workflow }} on ${{ github.ref }}"
+        subject: "❌ CI/CD Failure: ${{ github.workflow }} on ${{ github.ref }}"
         to: ${{ secrets.SMTP_TO }}
         from: ${{ secrets.SMTP_FROM }}
         body: |
-          ? The CI/CD pipeline failed for ${{ github.repository }}
+          ❌ The CI/CD pipeline failed for ${{ github.repository }}
           
           Workflow: ${{ github.workflow }}
           Branch: ${{ github.ref_name }}
@@ -619,6 +632,38 @@ jobs:
           Failed Jobs:
           ${{ toJSON(needs) }}
           
-          ?? View logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          📊 View logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           
           Please investigate and resolve the issues.
+    
+    - name: Create GitHub Issue on failure
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const issue = await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `❌ CI/CD Pipeline Failure: ${context.workflow} on ${context.ref}`,
+            body: `## Pipeline Failure Report
+            
+            **Workflow:** ${context.workflow}
+            **Branch:** ${context.ref}
+            **Commit:** ${context.sha}
+            **Triggered by:** ${context.actor}
+            **Run ID:** ${context.runId}
+            
+            ### Failed Jobs
+            \`\`\`json
+            ${{ toJSON(needs) }}
+            \`\`\`
+            
+            ### Action Required
+            Please investigate and resolve the issues.
+            
+            **View Logs:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            ---
+            *This issue was automatically created by the CI/CD pipeline*`,
+            labels: ['ci-cd', 'automated', 'bug']
+          });
+          console.log(`Created issue #${issue.data.number}`);
