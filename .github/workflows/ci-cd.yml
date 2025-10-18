@@ -56,13 +56,33 @@ jobs:
         dotnet-version: ${{ matrix.dotnet }}
     - name: Restore dependencies
       run: dotnet restore
+      continue-on-error: false
     - name: Run unit tests with coverage
       run: dotnet test --configuration Release --collect:"XPlat Code Coverage"
+      continue-on-error: false
     - name: Publish test results
       uses: actions/upload-artifact@v4
       with:
         name: test-results-${{ matrix.os }}-${{ matrix.dotnet }}
         path: '**/TestResults/**/*.xml'
+      continue-on-error: false
+    - name: Notify on failure (email)
+      if: failure()
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.sendgrid.net
+        server_port: 587
+        username: ${{ secrets.SMTP_USERNAME }}
+        password: ${{ secrets.SMTP_PASSWORD }}
+        subject: "CI/CD Failure: ${{ github.workflow }} on ${{ github.ref }}"
+        to: brijesh.patel@gmail.com
+        from: brijesh.patel@gmail.com
+        body: |
+          The CI/CD pipeline failed for ${{ github.repository }}.
+          Workflow: ${{ github.workflow }}
+          Branch: ${{ github.ref }}
+          Commit: ${{ github.sha }}
+          Please review the logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
   code-quality:
     runs-on: ubuntu-latest
