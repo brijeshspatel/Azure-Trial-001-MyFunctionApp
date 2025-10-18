@@ -17,8 +17,8 @@ env:
   SMTP_SERVER: 'smtp.sendgrid.net'
   SMTP_PORT: '587'
   SMTP_USERNAME: 'apikey'
-  SMTP_TO: 'brijesh.patel@gmail.com'
-  SMTP_FROM: 'brijesh.patel@gmail.com'
+  SMTP_TO: ${{ secrets.SMTP_TO }}
+  SMTP_FROM: ${{ secrets.SMTP_FROM }}
 
 jobs:
   build:
@@ -26,6 +26,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
     - name: Cache NuGet packages
       uses: actions/cache@v4
       with:
@@ -46,6 +48,7 @@ jobs:
       with:
         name: build-artifact
         path: '**/bin/Release/**/*'
+        retention-days: 14
 
   unit-test:
     runs-on: ${{ matrix.os }}
@@ -57,6 +60,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
@@ -72,7 +77,16 @@ jobs:
       with:
         name: test-results-${{ matrix.os }}-${{ matrix.dotnet }}
         path: '**/TestResults/**/*.xml'
+        retention-days: 14
       continue-on-error: false
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        files: '**/TestResults/**/*.xml'
+        token: ${{ secrets.CODECOV_TOKEN }}
+        flags: unittests
+        name: codecov-coverage
+        fail_ci_if_error: true
     - name: Notify on failure (email)
       if: failure()
       uses: dawidd6/action-send-mail@v3
@@ -97,6 +111,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
@@ -114,6 +130,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
@@ -126,5 +144,3 @@ jobs:
       uses: github/codeql-action/autobuild@v3
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
-    - name: Force failure for notification test
-      run: exit 1
