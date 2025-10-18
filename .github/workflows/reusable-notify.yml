@@ -1,0 +1,120 @@
+# Reusable workflow for notifications
+name: Notifications
+
+on:
+  workflow_call:
+    inputs:
+      notification-type:
+        description: 'Type of notification (failure, success)'
+        required: true
+        type: string
+      workflow-name:
+        description: 'Name of the workflow'
+        required: true
+        type: string
+      create-issue:
+        description: 'Create GitHub issue on failure'
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      smtp-password:
+        description: 'SMTP password for email notifications'
+        required: false
+      smtp-to:
+        description: 'Email recipient'
+        required: false
+      smtp-from:
+        description: 'Email sender'
+        required: false
+
+jobs:
+  notify:
+    name: Send Notifications
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Check if email notifications are configured
+      id: check-email
+      run: |
+        if [ -n "${{ secrets.smtp-password }}" ] && [ -n "${{ secrets.smtp-to }}" ] && [ -n "${{ secrets.smtp-from }}" ]; then
+          echo "configured=true" >> $GITHUB_OUTPUT
+        else
+          echo "configured=false" >> $GITHUB_OUTPUT
+          echo "⚠️ Email notifications not configured."
+        fi
+    
+    - name: Send failure notification via email
+      if: inputs.notification-type == 'failure' && steps.check-email.outputs.configured == 'true'
+      uses: dawidd6/action-send-mail@v3
+      continue-on-error: true
+      with:
+        server_address: smtp.sendgrid.net
+        server_port: 587
+        username: apikey
+        password: ${{ secrets.smtp-password }}
+        subject: "❌ CI/CD Failure: ${{ inputs.workflow-name }} on ${{ github.ref }}"
+        to: ${{ secrets.smtp-to }}
+        from: ${{ secrets.smtp-from }}
+        body: |
+          ❌ The CI/CD pipeline failed for ${{ github.repository }}
+          
+          Workflow: ${{ inputs.workflow-name }}
+          Branch: ${{ github.ref_name }}
+          Commit: ${{ github.sha }}
+          Triggered by: ${{ github.actor }}
+          
+          📊 View logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          
+          Please investigate and resolve the issues.
+    
+    - name: Send success notification via email
+      if: inputs.notification-type == 'success' && steps.check-email.outputs.configured == 'true'
+      uses: dawidd6/action-send-mail@v3
+      continue-on-error: true
+      with:
+        server_address: smtp.sendgrid.net
+        server_port: 587
+        username: apikey
+        password: ${{ secrets.smtp-password }}
+        subject: "✅ CI/CD Success: ${{ inputs.workflow-name }} on ${{ github.ref }}"
+        to: ${{ secrets.smtp-to }}
+        from: ${{ secrets.smtp-from }}
+        body: |
+          ✅ The CI/CD pipeline completed successfully for ${{ github.repository }}
+          
+          Workflow: ${{ inputs.workflow-name }}
+          Branch: ${{ github.ref_name }}
+          Commit: ${{ github.sha }}
+          Triggered by: ${{ github.actor }}
+          
+          📊 View details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    
+    - name: Create GitHub Issue on failure
+      if: inputs.notification-type == 'failure' && inputs.create-issue
+      uses: actions/github-script@v7
+      continue-on-error: true
+      with:
+        script: |
+          const issue = await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `❌ CI/CD Pipeline Failure: ${{ inputs.workflow-name }} on ${context.ref}`,
+            body: `## Pipeline Failure Report
+            
+            **Workflow:** ${{ inputs.workflow-name }}
+            **Branch:** ${context.ref}
+            **Commit:** ${context.sha}
+            **Triggered by:** ${context.actor}
+            **Run ID:** ${context.runId}
+            
+            ### Action Required
+            Please investigate and resolve the issues.
+            
+            **View Logs:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            ---
+            *This issue was automatically created by the CI/CD pipeline*`,
+            labels: ['ci-cd', 'automated', 'bug', '${{ inputs.notification-type }}']
+          });
+          console.log(`Created issue #${issue.data.number}`);

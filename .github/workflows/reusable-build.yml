@@ -1,0 +1,116 @@
+# Reusable workflow for building .NET applications
+name: Build .NET Application
+
+on:
+  workflow_call:
+    inputs:
+      dotnet-version:
+        description: '.NET SDK version'
+        required: false
+        type: string
+        default: '8.0.x'
+      build-configuration:
+        description: 'Build configuration'
+        required: false
+        type: string
+        default: 'Release'
+      treat-warnings-as-errors:
+        description: 'Treat compiler warnings as errors'
+        required: false
+        type: boolean
+        default: true
+      project-path:
+        description: 'Path to the project to publish'
+        required: true
+        type: string
+      artifact-name:
+        description: 'Name for the build artifact'
+        required: false
+        type: string
+        default: 'build-artifact'
+      artifact-retention-days:
+        description: 'Days to retain the artifact'
+        required: false
+        type: number
+        default: 30
+    outputs:
+      version:
+        description: 'Generated version number'
+        value: ${{ jobs.build.outputs.version }}
+      artifact-name:
+        description: 'Name of the uploaded artifact'
+        value: ${{ jobs.build.outputs.artifact-name }}
+
+jobs:
+  build:
+    name: Build and Package
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      artifact-name: ${{ steps.artifact-info.outputs.name }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ inputs.dotnet-version }}
+    
+    - name: Cache NuGet packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+    
+    - name: Generate version number
+      id: version
+      run: |
+        if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+          VERSION="1.0.${{ github.run_number }}"
+        else
+          VERSION="0.1.${{ github.run_number }}-preview"
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Generated version: $VERSION"
+    
+    - name: Restore dependencies
+      run: dotnet restore
+    
+    - name: Build solution
+      run: |
+        WARNINGS_FLAG=""
+        if [ "${{ inputs.treat-warnings-as-errors }}" == "true" ]; then
+          WARNINGS_FLAG="/p:TreatWarningsAsErrors=true /p:WarningLevel=4"
+        fi
+        
+        dotnet build --no-restore --configuration ${{ inputs.build-configuration }} \
+          /p:Version=${{ steps.version.outputs.version }} \
+          $WARNINGS_FLAG
+    
+    - name: Publish application
+      run: |
+        dotnet publish ${{ inputs.project-path }} \
+          --configuration ${{ inputs.build-configuration }} \
+          --output ./publish \
+          --no-build \
+          /p:Version=${{ steps.version.outputs.version }}
+    
+    - name: Set artifact info
+      id: artifact-info
+      run: |
+        ARTIFACT_NAME="${{ inputs.artifact-name }}-${{ steps.version.outputs.version }}"
+        echo "name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
+    
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.artifact-info.outputs.name }}
+        path: ./publish
+        retention-days: ${{ inputs.artifact-retention-days }}
+        if-no-files-found: error

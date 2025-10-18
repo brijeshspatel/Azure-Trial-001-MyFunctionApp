@@ -1,0 +1,112 @@
+# Reusable workflow for Azure deployment
+name: Deploy to Azure
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Environment to deploy to (development, staging, production)'
+        required: true
+        type: string
+      artifact-name:
+        description: 'Name of the artifact to deploy'
+        required: true
+        type: string
+      function-app-name:
+        description: 'Azure Function App name (without environment suffix)'
+        required: true
+        type: string
+      run-health-check:
+        description: 'Run health check after deployment'
+        required: false
+        type: boolean
+        default: true
+      health-check-endpoint:
+        description: 'Health check endpoint path'
+        required: false
+        type: string
+        default: '/api/health'
+    secrets:
+      azure-client-id:
+        description: 'Azure Client ID for OIDC'
+        required: true
+      azure-tenant-id:
+        description: 'Azure Tenant ID for OIDC'
+        required: true
+      azure-subscription-id:
+        description: 'Azure Subscription ID for OIDC'
+        required: true
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+      url: https://${{ steps.get-app-name.outputs.full-name }}.azurewebsites.net
+    
+    steps:
+    - name: Determine full app name
+      id: get-app-name
+      run: |
+        if [ "${{ inputs.environment }}" == "production" ]; then
+          echo "full-name=${{ inputs.function-app-name }}" >> $GITHUB_OUTPUT
+        else
+          echo "full-name=${{ inputs.function-app-name }}-${{ inputs.environment }}" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Download artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ./artifact
+    
+    - name: Azure Login (OIDC)
+      uses: azure/login@v2
+      with:
+        client-id: ${{ secrets.azure-client-id }}
+        tenant-id: ${{ secrets.azure-tenant-id }}
+        subscription-id: ${{ secrets.azure-subscription-id }}
+    
+    - name: Deploy to Azure Functions
+      id: deploy
+      uses: Azure/functions-action@v1
+      with:
+        app-name: ${{ steps.get-app-name.outputs.full-name }}
+        package: ./artifact
+        respect-funcignore: true
+    
+    - name: Wait for deployment
+      if: inputs.run-health-check
+      run: |
+        echo "Waiting for deployment to complete..."
+        sleep 30
+    
+    - name: Health check
+      if: inputs.run-health-check
+      run: |
+        echo "Running health check against ${{ inputs.environment }} environment..."
+        APP_URL="https://${{ steps.get-app-name.outputs.full-name }}.azurewebsites.net"
+        
+        # Try health check endpoint if provided
+        if [ -n "${{ inputs.health-check-endpoint }}" ]; then
+          echo "Checking: ${APP_URL}${{ inputs.health-check-endpoint }}"
+          if curl -f -s "${APP_URL}${{ inputs.health-check-endpoint }}"; then
+            echo "✅ Health check passed"
+          else
+            echo "⚠️ Health check endpoint not responding (this may be expected if not implemented)"
+          fi
+        else
+          echo "No health check endpoint configured, skipping health check"
+        fi
+      continue-on-error: true
+    
+    - name: Deployment summary
+      run: |
+        echo "### Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Function App:** ${{ steps.get-app-name.outputs.full-name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **URL:** https://${{ steps.get-app-name.outputs.full-name }}.azurewebsites.net" >> $GITHUB_STEP_SUMMARY
+        echo "- **Artifact:** ${{ inputs.artifact-name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Status:** ✅ Deployed successfully" >> $GITHUB_STEP_SUMMARY

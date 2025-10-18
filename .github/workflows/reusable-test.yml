@@ -1,0 +1,129 @@
+# Reusable workflow for running .NET tests
+name: Test .NET Application
+
+on:
+  workflow_call:
+    inputs:
+      dotnet-version:
+        description: '.NET SDK version'
+        required: false
+        type: string
+        default: '8.0.x'
+      build-configuration:
+        description: 'Build configuration'
+        required: false
+        type: string
+        default: 'Release'
+      coverage-threshold:
+        description: 'Minimum code coverage percentage'
+        required: false
+        type: number
+        default: 80
+      run-on-windows:
+        description: 'Also run tests on Windows'
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      codecov-token:
+        description: 'Codecov upload token'
+        required: false
+
+jobs:
+  test:
+    name: Unit Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ inputs.run-on-windows && fromJSON('["ubuntu-latest", "windows-latest"]') || fromJSON('["ubuntu-latest"]') }}
+        include:
+          - os: ubuntu-latest
+            os-name: linux
+          - os: windows-latest
+            os-name: windows
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ inputs.dotnet-version }}
+    
+    - name: Cache NuGet packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+    
+    - name: Restore dependencies
+      run: dotnet restore
+    
+    - name: Run unit tests with coverage
+      shell: bash
+      run: |
+        dotnet test --configuration ${{ inputs.build-configuration }} \
+          --no-restore \
+          --logger "trx;LogFileName=test-results.trx" \
+          --logger "console;verbosity=detailed" \
+          --collect:"XPlat Code Coverage" \
+          --results-directory ./TestResults \
+          -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+    
+    - name: Generate coverage report
+      if: matrix.os == 'ubuntu-latest'
+      uses: danielpalme/ReportGenerator-GitHub-Action@5.3.11
+      with:
+        reports: './TestResults/**/coverage.cobertura.xml'
+        targetdir: './CoverageReport'
+        reporttypes: 'HtmlInline;Cobertura;MarkdownSummaryGithub'
+        verbosity: 'Info'
+    
+    - name: Add coverage PR comment
+      if: matrix.os == 'ubuntu-latest' && github.event_name == 'pull_request'
+      uses: marocchino/sticky-pull-request-comment@v2
+      with:
+        recreate: true
+        path: ./CoverageReport/SummaryGithub.md
+    
+    - name: Publish test results
+      uses: EnricoMi/publish-unit-test-result-action@v2
+      if: matrix.os == 'ubuntu-latest' && always()
+      with:
+        files: './TestResults/**/*.trx'
+        check_name: 'Unit Test Results'
+    
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.os-name }}
+        path: ./TestResults
+        retention-days: 30
+    
+    - name: Upload coverage to Codecov
+      if: matrix.os == 'ubuntu-latest' && secrets.codecov-token != ''
+      uses: codecov/codecov-action@v4
+      with:
+        files: ./TestResults/**/coverage.cobertura.xml
+        token: ${{ secrets.codecov-token }}
+        flags: unittests
+        name: codecov-${{ matrix.os-name }}
+        fail_ci_if_error: false
+    
+    - name: Check coverage threshold
+      if: matrix.os == 'ubuntu-latest'
+      shell: bash
+      run: |
+        COVERAGE=$(grep -oP 'line-rate="\K[^"]+' ./TestResults/**/coverage.cobertura.xml | head -1)
+        COVERAGE_PERCENT=$(echo "$COVERAGE * 100" | bc)
+        echo "Code coverage: $COVERAGE_PERCENT%"
+        if (( $(echo "$COVERAGE_PERCENT < ${{ inputs.coverage-threshold }}" | bc -l) )); then
+          echo "❌ Coverage $COVERAGE_PERCENT% is below threshold ${{ inputs.coverage-threshold }}%"
+          exit 1
+        fi
+        echo "✅ Coverage threshold met"
