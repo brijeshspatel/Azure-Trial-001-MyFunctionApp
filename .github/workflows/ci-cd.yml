@@ -38,11 +38,11 @@ jobs:
       run: dotnet list package --vulnerable || true
 
     - name: Secret scanning
-      uses: github/codeql-action/init@v2
+      uses: github/codeql-action/init@v3
       with:
         languages: csharp
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v2
+      uses: github/codeql-action/analyze@v3
 
   # Optional: Deploy to Azure (add your secrets in GitHub repo settings)
   # deploy:
