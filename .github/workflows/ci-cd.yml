@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [ main, feature/*, develop ]
 
+permissions:
+  contents: read
+  actions: read
+  security-events: write    # Required for CodeQL analysis upload
+  checks: write             # Required for uploading test results as checks (if used)
+  # issues: write           # Only if you use actions that create issues
+
 jobs:
   build-test:
     runs-on: ubuntu-latest
