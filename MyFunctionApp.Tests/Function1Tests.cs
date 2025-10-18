@@ -133,7 +133,7 @@ namespace MyFunctionApp.Tests
         }
 
         [Theory]
-        [InlineData("!@£$%^&*()_+-=|~`[]{};:'\",.<>/?")]
+        [InlineData("!@Â£$%^&*()_+-=|~`[]{};:'\",.<>/?")]
         [InlineData("Alice Bob Charlie")]
         [InlineData("")]
         public async Task Run_Handles_Special_And_Empty_Characters(string name)
@@ -161,14 +161,19 @@ namespace MyFunctionApp.Tests
         [Fact]
         public async Task Run_Logs_Information_Message()
         {
+            // Arrange
             var context = new DefaultHttpContext();
             context.Request.QueryString = new QueryString("?name=TestUser");
             var loggerMock = new Mock<ILogger>();
+            
+            // Act
             await Function1.Run(context.Request, loggerMock.Object);
+            
+            // Assert
             loggerMock.Verify(x => x.Log(
                 LogLevel.Information,
                 It.IsAny<EventId>(),
-                It.Is<It.IsAnyType>((v, t) => v != null && v.ToString().Contains("C# HTTP trigger function processed a request.")),
+                It.Is<It.IsAnyType>((v, t) => v.ToString()!.Contains("C# HTTP trigger function processed a request.")),
                 null,
                 It.IsAny<Func<It.IsAnyType, Exception?, string>>()), Times.Once);
         }
