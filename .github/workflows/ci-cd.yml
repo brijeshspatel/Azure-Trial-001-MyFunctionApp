@@ -39,7 +39,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: test-results
-        path: '**/TestResults/*.xml'
+        path: '**/TestResults/**/*.xml'
 
     - name: Check for vulnerable packages
       run: dotnet list package --vulnerable || true
