@@ -53,6 +53,39 @@ jobs:
         name: ${{ inputs.artifact-name }}
         path: ./artifact
     
+    - name: Prepare package path
+      id: prep
+      run: |
+        set -e
+        PACKAGE_PATH="./artifact"
+        echo "Initial package directory: $PACKAGE_PATH"
+        echo "Contents of artifact directory:" && ls -la "$PACKAGE_PATH"
+        
+        # If the artifact was downloaded into a single nested directory (default behavior of download-artifact@v4 when name is specified), use that directory
+        DIR_COUNT=$(find "$PACKAGE_PATH" -mindepth 1 -maxdepth 1 -type d | wc -l)
+        FILE_COUNT=$(find "$PACKAGE_PATH" -mindepth 1 -maxdepth 1 -type f | wc -l)
+        if [ "$DIR_COUNT" -eq 1 ] && [ "$FILE_COUNT" -eq 0 ]; then
+          INNER_DIR=$(find "$PACKAGE_PATH" -mindepth 1 -maxdepth 1 -type d)
+          echo "Detected single nested directory: $INNER_DIR"
+          PACKAGE_PATH="$INNER_DIR"
+        fi
+        
+        echo "Using package path: $PACKAGE_PATH"
+        
+        # Validate structure expected by FlexConsumption: host.json and .azurefunctions at package root
+        if [ ! -f "$PACKAGE_PATH/host.json" ]; then
+          echo "ERROR: host.json not found at package root: $PACKAGE_PATH" >&2
+          echo "Found files:" && ls -la "$PACKAGE_PATH"
+          exit 1
+        fi
+        if [ ! -d "$PACKAGE_PATH/.azurefunctions" ]; then
+          echo "ERROR: .azurefunctions directory not found at package root: $PACKAGE_PATH" >&2
+          echo "Found files:" && ls -la "$PACKAGE_PATH"
+          exit 1
+        fi
+        
+        echo "package_path=$PACKAGE_PATH" >> $GITHUB_OUTPUT
+    
     - name: Azure Login (OIDC)
       uses: azure/login@v1
       with:
@@ -98,7 +131,7 @@ jobs:
       uses: Azure/functions-action@v1
       with:
         app-name: ${{ inputs.function-app-name }}
-        package: ./artifact
+        package: ${{ steps.prep.outputs.package_path }}
         respect-funcignore: true
     
     - name: Wait for deployment
