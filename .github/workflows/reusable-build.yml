@@ -99,7 +99,6 @@ jobs:
         dotnet publish ${{ inputs.project-path }} \
           --configuration ${{ inputs.build-configuration }} \
           --output ./publish \
-          --no-build \
           /p:Version=${{ steps.version.outputs.version }} \
           /p:GenerateRuntimeConfigurationFiles=true \
           /p:PublishReadyToRun=false \
