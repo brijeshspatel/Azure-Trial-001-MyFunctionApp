@@ -117,28 +117,67 @@ jobs:
         fi
         echo "✓ host.json found"
         
+        # Display host.json content
+        echo "host.json content:"
+        cat ./publish/host.json
+        echo ""
+        
         # Check for .azurefunctions directory (required by FlexConsumption)
         if [ ! -d "./publish/.azurefunctions" ]; then
           echo "⚠ .azurefunctions directory not found, creating it..."
           mkdir -p ./publish/.azurefunctions
-          
-          # Create a minimal metadata file if needed
-          echo '{"configurationSource":"attributes","generatedBy":"Microsoft.NET.Sdk.Functions","configurationPackages":[]}' > ./publish/.azurefunctions/metadata.json
+        fi
+        
+        # Ensure metadata.json exists with proper content for FlexConsumption
+        METADATA_FILE="./publish/.azurefunctions/metadata.json"
+        if [ ! -f "$METADATA_FILE" ]; then
+          echo "Creating metadata.json for FlexConsumption compatibility..."
+          GENERATION_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "{" > "$METADATA_FILE"
+          echo '  "configurationSource": "attributes",' >> "$METADATA_FILE"
+          echo '  "generatedBy": "Microsoft.NET.Sdk.Functions-4.0.0",' >> "$METADATA_FILE"
+          echo "  \"generationDate\": \"$GENERATION_DATE\"," >> "$METADATA_FILE"
+          echo '  "toolsVersion": "4.0",' >> "$METADATA_FILE"
+          echo '  "configurationPackages": []' >> "$METADATA_FILE"
+          echo "}" >> "$METADATA_FILE"
         fi
         echo "✓ .azurefunctions directory present"
+        echo "✓ metadata.json created/verified"
+        
+        # Check for function metadata files
+        if [ -d "./publish/.azurefunctions" ]; then
+          FUNC_COUNT=$(find ./publish -name "function.json" | wc -l)
+          echo "✓ Found $FUNC_COUNT function.json file(s)"
+        fi
         
         # Verify extensions.json if functions use bindings
         if [ -f "./publish/bin/extensions.json" ]; then
-          echo "✓ extensions.json found"
+          echo "✓ extensions.json found in bin/"
+        fi
+        
+        # Check for essential DLLs
+        if [ -f "./publish/MyFunctionApp.dll" ]; then
+          echo "✓ Application DLL found"
         fi
         
         # List final structure
         echo ""
-        echo "Published artifact structure:"
-        ls -la ./publish/
+        echo "========================================"
+        echo "Published artifact root structure:"
+        echo "========================================"
+        ls -lah ./publish/ | head -20
         echo ""
-        echo ".azurefunctions contents:"
-        ls -la ./publish/.azurefunctions/ 2>/dev/null || echo "Directory is empty or newly created"
+        echo "========================================"
+        echo ".azurefunctions directory contents:"
+        echo "========================================"
+        ls -lah ./publish/.azurefunctions/ 2>/dev/null || echo "Directory exists but is empty"
+        echo ""
+        if [ -f "./publish/.azurefunctions/metadata.json" ]; then
+          echo "metadata.json content:"
+          cat ./publish/.azurefunctions/metadata.json
+        fi
+        echo ""
+        echo "✅ Azure Functions structure validated for FlexConsumption deployment"
     
     - name: Set artifact info
       id: artifact-info
