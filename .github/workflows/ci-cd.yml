@@ -128,7 +128,7 @@ jobs:
       environment: development
       artifact-name: ${{ needs.build.outputs.artifact-name }}
       function-app-name: 'MyFunctionApp'
-      function-app-url: ${{ secrets.AZURE_FUNCTION_APP_URL_DEV }}
+      function-app-url: ${{ vars.AZURE_FUNCTION_APP_URL_DEV }}
       run-health-check: true
       health-check-endpoint: /api/health
     secrets:
@@ -149,7 +149,7 @@ jobs:
       environment: staging
       artifact-name: ${{ needs.build.outputs.artifact-name }}
       function-app-name: 'MyFunctionApp'
-      function-app-url: ${{ secrets.AZURE_FUNCTION_APP_URL_UAT }}
+      function-app-url: ${{ vars.AZURE_FUNCTION_APP_URL_UAT }}
       run-health-check: true
       health-check-endpoint: /api/health
     secrets:
@@ -170,7 +170,7 @@ jobs:
       environment: production
       artifact-name: ${{ needs.build.outputs.artifact-name }}
       function-app-name: 'MyFunctionApp'
-      function-app-url: ${{ secrets.AZURE_FUNCTION_APP_URL_PRD }}
+      function-app-url: ${{ vars.AZURE_FUNCTION_APP_URL_PRD }}
       run-health-check: true
       health-check-endpoint: /api/health
     secrets:
