@@ -28,10 +28,17 @@ permissions:
   issues: write
 
 env:
+  # Main settings
   DOTNET_VERSION: '8.0.x'
   AZURE_FUNCTIONAPP_NAME: 'myazurefunctionapp'
-  PROJECT_PATH: './MyFunctionApp/MyFunctionApp.csproj'
+  AZURE_FUNCTIONAPP_PACKAGE_PATH: './MyFunctionApp'
   BUILD_CONFIGURATION: 'Release'
+  ARTIFACT_NAME: 'azure-function-app'
+
+  # Security scanning
+  TRIVY_VERSION: 'latest'
+
+  # Code coverage thresholds
   COVERAGE_THRESHOLD: 80
 
 jobs:
