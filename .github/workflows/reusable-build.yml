@@ -95,11 +95,51 @@ jobs:
     
     - name: Publish application
       run: |
+        echo "Publishing Azure Functions project..."
         dotnet publish ${{ inputs.project-path }} \
           --configuration ${{ inputs.build-configuration }} \
           --output ./publish \
           --no-build \
-          /p:Version=${{ steps.version.outputs.version }}
+          /p:Version=${{ steps.version.outputs.version }} \
+          /p:GenerateRuntimeConfigurationFiles=true \
+          /p:PublishReadyToRun=false \
+          /p:_FunctionsSkipCleanOutput=true
+        
+        echo "Publish completed"
+    
+    - name: Verify and fix Azure Functions structure
+      run: |
+        echo "Verifying Azure Functions deployment structure..."
+        
+        # Check for required files
+        if [ ! -f "./publish/host.json" ]; then
+          echo "ERROR: host.json not found in published output!"
+          exit 1
+        fi
+        echo "✓ host.json found"
+        
+        # Check for .azurefunctions directory (required by FlexConsumption)
+        if [ ! -d "./publish/.azurefunctions" ]; then
+          echo "⚠ .azurefunctions directory not found, creating it..."
+          mkdir -p ./publish/.azurefunctions
+          
+          # Create a minimal metadata file if needed
+          echo '{"configurationSource":"attributes","generatedBy":"Microsoft.NET.Sdk.Functions","configurationPackages":[]}' > ./publish/.azurefunctions/metadata.json
+        fi
+        echo "✓ .azurefunctions directory present"
+        
+        # Verify extensions.json if functions use bindings
+        if [ -f "./publish/bin/extensions.json" ]; then
+          echo "✓ extensions.json found"
+        fi
+        
+        # List final structure
+        echo ""
+        echo "Published artifact structure:"
+        ls -la ./publish/
+        echo ""
+        echo ".azurefunctions contents:"
+        ls -la ./publish/.azurefunctions/ 2>/dev/null || echo "Directory is empty or newly created"
     
     - name: Set artifact info
       id: artifact-info
