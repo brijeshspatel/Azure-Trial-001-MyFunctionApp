@@ -106,8 +106,9 @@ jobs:
         retention-days: 30
     
     - name: Upload coverage to Codecov
-      if: matrix.os == 'ubuntu-latest' && secrets.codecov-token != ''
+      if: matrix.os == 'ubuntu-latest'
       uses: codecov/codecov-action@v4
+      continue-on-error: true
       with:
         files: ./TestResults/**/coverage.cobertura.xml
         token: ${{ secrets.codecov-token }}
