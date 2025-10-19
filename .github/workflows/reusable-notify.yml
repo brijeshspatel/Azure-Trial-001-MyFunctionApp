@@ -5,26 +5,26 @@ on:
   workflow_call:
     inputs:
       notification-type:
-        description: 'Type of notification (failure, success)'
+        description: 'Type of notification (success, failure)'
         required: true
         type: string
       workflow-name:
-        description: 'Name of the workflow'
+        description: 'Name of the workflow triggering the notification'
         required: true
         type: string
       create-issue:
-        description: 'Create GitHub issue on failure'
+        description: 'Create a GitHub issue on failure'
         required: false
         type: boolean
-        default: true
+        default: false
     secrets:
-      smtp-password:
+      SMTP_PASSWORD:
         description: 'SMTP password for email notifications'
         required: false
-      smtp-to:
+      SMTP_TO:
         description: 'Email recipient'
         required: false
-      smtp-from:
+      SMTP_FROM:
         description: 'Email sender'
         required: false
 
@@ -37,7 +37,7 @@ jobs:
     - name: Check if email notifications are configured
       id: check-email
       run: |
-        if [ -n "${{ secrets.smtp-password }}" ] && [ -n "${{ secrets.smtp-to }}" ] && [ -n "${{ secrets.smtp-from }}" ]; then
+        if [ -n "${{ secrets.SMTP_PASSWORD }}" ] && [ -n "${{ secrets.SMTP_TO }}" ] && [ -n "${{ secrets.SMTP_FROM }}" ]; then
           echo "configured=true" >> $GITHUB_OUTPUT
         else
           echo "configured=false" >> $GITHUB_OUTPUT
@@ -52,10 +52,10 @@ jobs:
         server_address: smtp.sendgrid.net
         server_port: 587
         username: apikey
-        password: ${{ secrets.smtp-password }}
+        password: ${{ secrets.SMTP_PASSWORD }}
         subject: "❌ CI/CD Failure: ${{ inputs.workflow-name }} on ${{ github.ref }}"
-        to: ${{ secrets.smtp-to }}
-        from: ${{ secrets.smtp-from }}
+        to: ${{ secrets.SMTP_TO }}
+        from: ${{ secrets.SMTP_FROM }}
         body: |
           ❌ The CI/CD pipeline failed for ${{ github.repository }}
           
@@ -76,10 +76,10 @@ jobs:
         server_address: smtp.sendgrid.net
         server_port: 587
         username: apikey
-        password: ${{ secrets.smtp-password }}
+        password: ${{ secrets.SMTP_PASSWORD }}
         subject: "✅ CI/CD Success: ${{ inputs.workflow-name }} on ${{ github.ref }}"
-        to: ${{ secrets.smtp-to }}
-        from: ${{ secrets.smtp-from }}
+        to: ${{ secrets.SMTP_TO }}
+        from: ${{ secrets.SMTP_FROM }}
         body: |
           ✅ The CI/CD pipeline completed successfully for ${{ github.repository }}
           

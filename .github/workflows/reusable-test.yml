@@ -1,4 +1,4 @@
-# Reusable workflow for running .NET tests
+# Reusable workflow for testing .NET applications
 name: Test .NET Application
 
 on:
@@ -25,7 +25,7 @@ on:
         type: boolean
         default: true
     secrets:
-      codecov-token:
+      CODECOV_TOKEN:
         description: 'Codecov upload token'
         required: false
 
@@ -111,7 +111,7 @@ jobs:
       continue-on-error: true
       with:
         files: ./TestResults/**/coverage.cobertura.xml
-        token: ${{ secrets.codecov-token }}
+        token: ${{ secrets.CODECOV_TOKEN }}
         flags: unittests
         name: codecov-${{ matrix.os-name }}
         fail_ci_if_error: false

@@ -55,7 +55,7 @@ jobs:
       coverage-threshold: 80
       run-on-windows: true
     secrets:
-      codecov-token: ${{ secrets.CODECOV_TOKEN }}
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   # ============================================
   # Code Quality Analysis
@@ -131,9 +131,7 @@ jobs:
       run-health-check: true
       health-check-endpoint: /api/health
     secrets:
-      azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-      azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-      azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
 
   # ============================================
   # Deploy to Staging
@@ -152,9 +150,7 @@ jobs:
       run-health-check: true
       health-check-endpoint: /api/health
     secrets:
-      azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-      azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-      azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
 
   # ============================================
   # Deploy to Production
@@ -173,9 +169,7 @@ jobs:
       run-health-check: true
       health-check-endpoint: /api/health
     secrets:
-      azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
-      azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-      azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
 
   # ============================================
   # Create Release
@@ -226,9 +220,9 @@ jobs:
       workflow-name: CI/CD Pipeline
       create-issue: true
     secrets:
-      smtp-password: ${{ secrets.SMTP_PASSWORD }}
-      smtp-to: ${{ secrets.SMTP_TO }}
-      smtp-from: ${{ secrets.SMTP_FROM }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      SMTP_TO: ${{ secrets.SMTP_TO }}
+      SMTP_FROM: ${{ secrets.SMTP_FROM }}
 
   notify-success:
     name: Notify Success
@@ -241,6 +235,6 @@ jobs:
       workflow-name: CI/CD Pipeline
       create-issue: false
     secrets:
-      smtp-password: ${{ secrets.SMTP_PASSWORD }}
-      smtp-to: ${{ secrets.SMTP_TO }}
-      smtp-from: ${{ secrets.SMTP_FROM }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      SMTP_TO: ${{ secrets.SMTP_TO }}
+      SMTP_FROM: ${{ secrets.SMTP_FROM }}
