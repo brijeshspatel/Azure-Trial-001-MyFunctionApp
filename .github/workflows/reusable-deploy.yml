@@ -26,15 +26,16 @@ on:
         required: false
         type: string
         default: '/api/health'
+      function-app-url:
+        description: 'Base URL for the Function App (environment-specific, e.g., https://myfunctionapp.azurewebsites.net)'
+        required: true
+        type: string
     secrets:
       AZURE_CREDENTIALS:
         description: 'Azure SDK auth JSON for Service Principal (environment-specific)'
         required: true
       AZURE_SUBSCRIPTION_ID:
         description: 'Azure Subscription ID for the target environment'
-        required: true
-      AZURE_FUNCTION_APP_URL:
-        description: 'Base URL for the Function App (environment-specific, e.g., https://myfunctionapp.azurewebsites.net)'
         required: true
 
 jobs:
@@ -43,7 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: ${{ inputs.environment }}
-      url: ${{ secrets.AZURE_FUNCTION_APP_URL }}
+      url: ${{ inputs.function-app-url }}
     
     steps:
     - name: Download artifact
@@ -74,7 +75,7 @@ jobs:
         echo "- **Subscription:** $SUB_NAME" >> $GITHUB_STEP_SUMMARY
         echo "- **Subscription ID:** ${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Function App:** ${{ inputs.function-app-name }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **URL:** ${{ secrets.AZURE_FUNCTION_APP_URL }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **URL:** ${{ inputs.function-app-url }}" >> $GITHUB_STEP_SUMMARY
     
     - name: Verify Function App exists
       run: |
@@ -110,7 +111,7 @@ jobs:
       if: inputs.run-health-check
       run: |
         echo "Running health check against ${{ inputs.environment }} environment..."
-        APP_URL="${{ secrets.AZURE_FUNCTION_APP_URL }}"
+        APP_URL="${{ inputs.function-app-url }}"
         
         # Try health check endpoint if provided
         if [ -n "${{ inputs.health-check-endpoint }}" ]; then
@@ -131,6 +132,6 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "- **Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Function App:** ${{ inputs.function-app-name }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **URL:** ${{ secrets.AZURE_FUNCTION_APP_URL }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **URL:** ${{ inputs.function-app-url }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Artifact:** ${{ inputs.artifact-name }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Status:** ✅ Deployed successfully" >> $GITHUB_STEP_SUMMARY
