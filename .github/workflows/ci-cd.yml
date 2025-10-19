@@ -27,20 +27,6 @@ permissions:
   pull-requests: write
   issues: write
 
-env:
-  # Main settings
-  DOTNET_VERSION: '8.0.x'
-  AZURE_FUNCTIONAPP_NAME: 'myazurefunctionapp'
-  AZURE_FUNCTIONAPP_PACKAGE_PATH: './MyFunctionApp'
-  BUILD_CONFIGURATION: 'Release'
-  ARTIFACT_NAME: 'azure-function-app'
-
-  # Security scanning
-  TRIVY_VERSION: 'latest'
-
-  # Code coverage thresholds
-  COVERAGE_THRESHOLD: 80
-
 jobs:
   # ============================================
   # Build Application
@@ -49,11 +35,11 @@ jobs:
     name: Build
     uses: ./.github/workflows/reusable-build.yml
     with:
-      dotnet-version: ${{ env.DOTNET_VERSION }}
-      build-configuration: Release
+      dotnet-version: '8.0.x'
+      build-configuration: 'Release'
       treat-warnings-as-errors: true
-      project-path: ./MyFunctionApp/MyFunctionApp.csproj
-      artifact-name: azure-function-app
+      project-path: './MyFunctionApp/MyFunctionApp.csproj'
+      artifact-name: 'azure-function-app'
       artifact-retention-days: 30
 
   # ============================================
@@ -64,8 +50,8 @@ jobs:
     needs: build
     uses: ./.github/workflows/reusable-test.yml
     with:
-      dotnet-version: ${{ env.DOTNET_VERSION }}
-      build-configuration: Release
+      dotnet-version: '8.0.x'
+      build-configuration: 'Release'
       coverage-threshold: 80
       run-on-windows: true
     secrets:
@@ -79,7 +65,7 @@ jobs:
     needs: build
     uses: ./.github/workflows/reusable-code-quality.yml
     with:
-      dotnet-version: ${{ env.DOTNET_VERSION }}
+      dotnet-version: '8.0.x'
       fail-on-format-errors: false
 
   # ============================================
@@ -90,7 +76,7 @@ jobs:
     needs: build
     uses: ./.github/workflows/reusable-security.yml
     with:
-      dotnet-version: ${{ env.DOTNET_VERSION }}
+      dotnet-version: '8.0.x'
       artifact-name: ${{ needs.build.outputs.artifact-name }}
       fail-on-vulnerabilities: true
       severity-cutoff: high
@@ -103,7 +89,7 @@ jobs:
     needs: build
     uses: ./.github/workflows/reusable-license.yml
     with:
-      dotnet-version: ${{ env.DOTNET_VERSION }}
+      dotnet-version: '8.0.x'
 
   # ============================================
   # Integration Gate
@@ -141,7 +127,7 @@ jobs:
     with:
       environment: development
       artifact-name: ${{ needs.build.outputs.artifact-name }}
-      function-app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
+      function-app-name: 'myazurefunctionapp'
       run-health-check: true
       health-check-endpoint: /api/health
     secrets:
@@ -162,7 +148,7 @@ jobs:
     with:
       environment: staging
       artifact-name: ${{ needs.build.outputs.artifact-name }}
-      function-app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
+      function-app-name: 'myazurefunctionapp'
       run-health-check: true
       health-check-endpoint: /api/health
     secrets:
@@ -183,7 +169,7 @@ jobs:
     with:
       environment: production
       artifact-name: ${{ needs.build.outputs.artifact-name }}
-      function-app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
+      function-app-name: 'myazurefunctionapp'
       run-health-check: true
       health-check-endpoint: /api/health
     secrets:
