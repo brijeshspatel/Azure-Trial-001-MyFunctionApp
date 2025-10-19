@@ -103,7 +103,6 @@ jobs:
           /p:GenerateRuntimeConfigurationFiles=true \
           /p:PublishReadyToRun=false \
           /p:_FunctionsSkipCleanOutput=true
-        
         echo "Publish completed"
     
     - name: Verify and fix Azure Functions structure
@@ -112,17 +111,12 @@ jobs:
         
         # Check for required files
         if [ ! -f "./publish/host.json" ]; then
-          echo "ERROR: host.json not found in published output!"
+          echo "ERROR: host.json not found in published output!" >&2
           exit 1
         fi
         echo "✓ host.json found"
         
-        # Display host.json content
-        echo "host.json content:"
-        cat ./publish/host.json
-        echo ""
-        
-        # Check for .azurefunctions directory (required by FlexConsumption)
+        # Ensure .azurefunctions directory exists
         if [ ! -d "./publish/.azurefunctions" ]; then
           echo "⚠ .azurefunctions directory not found, creating it..."
           mkdir -p ./publish/.azurefunctions
@@ -144,41 +138,21 @@ jobs:
         echo "✓ .azurefunctions directory present"
         echo "✓ metadata.json created/verified"
         
-        # Check for function metadata files
-        if [ -d "./publish/.azurefunctions" ]; then
-          FUNC_COUNT=$(find ./publish -name "function.json" | wc -l)
-          echo "✓ Found $FUNC_COUNT function.json file(s)"
-        fi
-        
-        # Verify extensions.json if functions use bindings
-        if [ -f "./publish/bin/extensions.json" ]; then
-          echo "✓ extensions.json found in bin/"
-        fi
-        
-        # Check for essential DLLs
-        if [ -f "./publish/MyFunctionApp.dll" ]; then
-          echo "✓ Application DLL found"
-        fi
-        
-        # List final structure
-        echo ""
-        echo "========================================"
+        # Optional diagnostics
         echo "Published artifact root structure:"
-        echo "========================================"
-        ls -lah ./publish/ | head -20
-        echo ""
-        echo "========================================"
-        echo ".azurefunctions directory contents:"
-        echo "========================================"
-        ls -lah ./publish/.azurefunctions/ 2>/dev/null || echo "Directory exists but is empty"
-        echo ""
-        if [ -f "./publish/.azurefunctions/metadata.json" ]; then
-          echo "metadata.json content:"
-          cat ./publish/.azurefunctions/metadata.json
-        fi
-        echo ""
-        echo "✅ Azure Functions structure validated for FlexConsumption deployment"
+        ls -lah ./publish/ | head -50
+        echo ".azurefunctions contents:"
+        ls -lah ./publish/.azurefunctions/ || true
     
+    - name: Create deployment zip at correct root
+      run: |
+        echo "Creating zip with .azurefunctions at the root..."
+        cd ./publish
+        zip -r ../functionapp_package.zip .
+        cd ..
+        echo "Zip created:"
+        ls -la functionapp_package.zip
+
     - name: Set artifact info
       id: artifact-info
       run: |
@@ -189,6 +163,8 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: ${{ steps.artifact-info.outputs.name }}
-        path: ./publish
+        path: |
+          ./publish
+          ./functionapp_package.zip
         retention-days: ${{ inputs.artifact-retention-days }}
         if-no-files-found: error
