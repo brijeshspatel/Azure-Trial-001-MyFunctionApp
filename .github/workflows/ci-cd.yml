@@ -1,3 +1,5 @@
+# Main CI/CD Pipeline - Orchestrator
+# This workflow orchestrates all reusable workflows
 name: CI/CD Pipeline
 
 on:
@@ -21,622 +23,180 @@ permissions:
   actions: read
   security-events: write
   checks: write
-  id-token: write # Required for OIDC authentication
-  pull-requests: write # Required for PR comments
+  id-token: write
+  pull-requests: write
+  issues: write
 
 env:
   DOTNET_VERSION: '8.0.x'
   AZURE_FUNCTIONAPP_NAME: 'myazurefunctionapp'
-  AZURE_FUNCTIONAPP_PACKAGE_PATH: './MyFunctionApp'
+  PROJECT_PATH: './MyFunctionApp/MyFunctionApp.csproj'
   BUILD_CONFIGURATION: 'Release'
-  ARTIFACT_NAME: 'azure-function-app'
-  # Security scanning
-  TRIVY_VERSION: 'latest'
-  # Code coverage thresholds
   COVERAGE_THRESHOLD: 80
 
 jobs:
   # ============================================
-  # Build and Validation
+  # Build Application
   # ============================================
   build:
-    name: Build and Validate
-    runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
-      artifact-name: ${{ steps.artifact-info.outputs.name }}
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0 # Full history for proper versioning
-    
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: ${{ env.DOTNET_VERSION }}
-    
-    - name: Cache NuGet packages
-      uses: actions/cache@v4
-      with:
-        path: ~/.nuget/packages
-        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-        restore-keys: |
-          ${{ runner.os }}-nuget-
-    
-    - name: Generate version number
-      id: version
-      run: |
-        if [ "${{ github.ref }}" == "refs/heads/main" ]; then
-          VERSION="1.0.${{ github.run_number }}"
-        else
-          VERSION="0.1.${{ github.run_number }}-preview"
-        fi
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
-        echo "Generated version: $VERSION"
-    
-    - name: Restore dependencies
-      run: dotnet restore
-    
-    - name: Build solution
-      shell: bash
-      run: |
-        dotnet build --no-restore --configuration ${{ env.BUILD_CONFIGURATION }} \
-          /p:Version=${{ steps.version.outputs.version }} \
-          /p:TreatWarningsAsErrors=true \
-          /p:WarningLevel=4
-    
-    - name: Publish Azure Function
-      shell: bash
-      run: |
-        dotnet publish ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}/MyFunctionApp.csproj \
-          --configuration ${{ env.BUILD_CONFIGURATION }} \
-          --output ./publish \
-          --no-build \
-          /p:Version=${{ steps.version.outputs.version }}
-    
-    - name: Set artifact info
-      id: artifact-info
-      run: |
-        ARTIFACT_NAME="${{ env.ARTIFACT_NAME }}-${{ steps.version.outputs.version }}"
-        echo "name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
-    
-    - name: Upload build artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: ${{ steps.artifact-info.outputs.name }}
-        path: ./publish
-        retention-days: 30
-        if-no-files-found: error
+    name: Build
+    uses: ./.github/workflows/reusable-build.yml
+    with:
+      dotnet-version: ${{ env.DOTNET_VERSION }}
+      build-configuration: Release
+      treat-warnings-as-errors: true
+      project-path: ./MyFunctionApp/MyFunctionApp.csproj
+      artifact-name: azure-function-app
+      artifact-retention-days: 30
 
   # ============================================
-  # Unit Tests
+  # Run Tests
   # ============================================
-  unit-tests:
-    name: Unit Tests (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+  test:
+    name: Test
     needs: build
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        include:
-          - os: ubuntu-latest
-            os-name: linux
-          - os: windows-latest
-            os-name: windows
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: ${{ env.DOTNET_VERSION }}
-    
-    - name: Cache NuGet packages
-      uses: actions/cache@v4
-      with:
-        path: ~/.nuget/packages
-        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-        restore-keys: |
-          ${{ runner.os }}-nuget-
-    
-    - name: Restore dependencies
-      run: dotnet restore
-    
-    - name: Run unit tests with coverage
-      shell: bash
-      run: |
-        dotnet test --configuration ${{ env.BUILD_CONFIGURATION }} \
-          --no-restore \
-          --logger "trx;LogFileName=test-results.trx" \
-          --logger "console;verbosity=detailed" \
-          --collect:"XPlat Code Coverage" \
-          --results-directory ./TestResults \
-          -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
-    
-    - name: Generate coverage report
-      if: matrix.os == 'ubuntu-latest'
-      uses: danielpalme/ReportGenerator-GitHub-Action@5.3.11
-      with:
-        reports: './TestResults/**/coverage.cobertura.xml'
-        targetdir: './CoverageReport'
-        reporttypes: 'HtmlInline;Cobertura;MarkdownSummaryGithub'
-        verbosity: 'Info'
-    
-    - name: Add coverage PR comment
-      if: matrix.os == 'ubuntu-latest' && github.event_name == 'pull_request'
-      uses: marocchino/sticky-pull-request-comment@v2
-      with:
-        recreate: true
-        path: ./CoverageReport/SummaryGithub.md
-    
-    - name: Publish test results
-      uses: EnricoMi/publish-unit-test-result-action@v2
-      if: matrix.os == 'ubuntu-latest' && always()
-      with:
-        files: './TestResults/**/*.trx'
-        check_name: 'Unit Test Results'
-    
-    - name: Upload test results
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: test-results-${{ matrix.os-name }}
-        path: ./TestResults
-        retention-days: 30
-    
-    - name: Upload coverage to Codecov
-      if: matrix.os == 'ubuntu-latest'
-      uses: codecov/codecov-action@v4
-      with:
-        files: ./TestResults/**/coverage.cobertura.xml
-        token: ${{ secrets.CODECOV_TOKEN }}
-        flags: unittests
-        name: codecov-${{ matrix.os-name }}
-        fail_ci_if_error: false # Don't fail if Codecov is down
-    
-    - name: Check coverage threshold
-      if: matrix.os == 'ubuntu-latest'
-      shell: bash
-      run: |
-        COVERAGE=$(grep -oP 'line-rate="\K[^"]+' ./TestResults/**/coverage.cobertura.xml | head -1)
-        COVERAGE_PERCENT=$(echo "$COVERAGE * 100" | bc)
-        echo "Code coverage: $COVERAGE_PERCENT%"
-        if (( $(echo "$COVERAGE_PERCENT < ${{ env.COVERAGE_THRESHOLD }}" | bc -l) )); then
-          echo "❌ Coverage $COVERAGE_PERCENT% is below threshold ${{ env.COVERAGE_THRESHOLD }}%"
-          exit 1
-        fi
-        echo "✅ Coverage threshold met"
+    uses: ./.github/workflows/reusable-test.yml
+    with:
+      dotnet-version: ${{ env.DOTNET_VERSION }}
+      build-configuration: Release
+      coverage-threshold: 80
+      run-on-windows: true
+    secrets:
+      codecov-token: ${{ secrets.CODECOV_TOKEN }}
 
   # ============================================
-  # Code Quality & Security Analysis
+  # Code Quality Analysis
   # ============================================
   code-quality:
-    name: Code Quality Analysis
-    runs-on: ubuntu-latest
+    name: Code Quality
     needs: build
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: ${{ env.DOTNET_VERSION }}
-    
-    - name: Restore dependencies
-      run: dotnet restore
-    
-    - name: Install dotnet format
-      run: dotnet tool install -g dotnet-format
-    
-    - name: Run dotnet format
-      run: dotnet format --verify-no-changes --verbosity diagnostic
-      continue-on-error: true
-    
-    - name: Run dotnet format (report only)
-      if: failure()
-      run: dotnet format --verify-no-changes --report ./format-report.json
-      continue-on-error: true
-    
-    - name: Upload format report
-      if: failure()
-      uses: actions/upload-artifact@v4
-      with:
-        name: format-report
-        path: ./format-report.json
+    uses: ./.github/workflows/reusable-code-quality.yml
+    with:
+      dotnet-version: ${{ env.DOTNET_VERSION }}
+      fail-on-format-errors: false
 
   # ============================================
-  # Dependency & Vulnerability Scanning
+  # Security Scanning
   # ============================================
-  dependency-security:
-    name: Dependency & Vulnerability Scanning
-    runs-on: ubuntu-latest
+  security:
+    name: Security
     needs: build
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: ${{ env.DOTNET_VERSION }}
-    
-    - name: Restore dependencies
-      run: dotnet restore
-    
-    - name: Check for vulnerable packages
-      run: |
-        echo "Checking for vulnerable NuGet packages..."
-        dotnet list package --vulnerable --include-transitive 2>&1 | tee vulnerable-packages.txt
-        if grep -q "has the following vulnerable packages" vulnerable-packages.txt; then
-          echo "❌ Vulnerable packages found!"
-          cat vulnerable-packages.txt
-          exit 1
-        fi
-        echo "✅ No vulnerable packages found"
-    
-    - name: Check for deprecated packages
-      run: |
-        echo "Checking for deprecated NuGet packages..."
-        dotnet list package --deprecated --include-transitive
-    
-    - name: Check for outdated packages
-      run: |
-        echo "Checking for outdated NuGet packages..."
-        dotnet list package --outdated --include-transitive
-      continue-on-error: true
-    
-    - name: Generate SBOM (Software Bill of Materials)
-      uses: anchore/sbom-action@v0
-      with:
-        path: ./
-        format: spdx-json
-        output-file: sbom.spdx.json
-        upload-artifact: true
-        upload-release-assets: false
-    
-    - name: Scan SBOM with Grype
-      uses: anchore/scan-action@v3
-      id: scan
-      with:
-        sbom: sbom.spdx.json
-        fail-build: true
-        severity-cutoff: high
-    
-    - name: Upload Grype scan results to GitHub Security
-      if: always()
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        sarif_file: ${{ steps.scan.outputs.sarif }}
-    
-    - name: Download build artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: ${{ needs.build.outputs.artifact-name }}
-        path: ./artifact
-    
-    - name: Scan published artifacts with Trivy
-      uses: aquasecurity/trivy-action@master
-      with:
-        scan-type: 'fs'
-        scan-ref: './artifact'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
-        severity: 'CRITICAL,HIGH'
-    
-    - name: Upload Trivy scan results to GitHub Security
-      if: always()
-      uses: github/codeql-action/upload-sarif@v3
-      with:
-        sarif_file: trivy-results.sarif
-
-  # ============================================
-  # Static Application Security Testing (SAST)
-  # ============================================
-  codeql-analysis:
-    name: CodeQL Security Analysis
-    runs-on: ubuntu-latest
-    needs: build
-    permissions:
-      security-events: write
-      actions: read
-      contents: read
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: ${{ env.DOTNET_VERSION }}
-    
-    - name: Initialize CodeQL
-      uses: github/codeql-action/init@v3
-      with:
-        languages: csharp
-        queries: security-and-quality
-    
-    - name: Autobuild
-      uses: github/codeql-action/autobuild@v3
-    
-    - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v3
-      with:
-        category: "/language:csharp"
-
-  # ============================================
-  # Secret Scanning
-  # ============================================
-  secret-scanning:
-    name: Secret Scanning
-    runs-on: ubuntu-latest
-    needs: build
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    
-    - name: TruffleHog Secret Scan
-      uses: trufflesecurity/trufflehog@main
-      with:
-        path: ./
-        base: ${{ github.event.repository.default_branch }}
-        head: HEAD
+    uses: ./.github/workflows/reusable-security.yml
+    with:
+      dotnet-version: ${{ env.DOTNET_VERSION }}
+      artifact-name: ${{ needs.build.outputs.artifact-name }}
+      fail-on-vulnerabilities: true
+      severity-cutoff: high
 
   # ============================================
   # License Compliance
   # ============================================
-  license-compliance:
-    name: License Compliance Check
-    runs-on: ubuntu-latest
+  license:
+    name: License
     needs: build
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: ${{ env.DOTNET_VERSION }}
-    
-    - name: Restore dependencies
-      run: dotnet restore
-    
-    - name: Generate package list (JSON format)
-      run: |
-        mkdir -p ./licenses
-        echo "Generating package information..."
-        dotnet list package --include-transitive --format json > ./licenses/packages.json || echo "{}" > ./licenses/packages.json
-      continue-on-error: true
-    
-    - name: Generate license report (Markdown)
-      run: |
-        echo "# License Compliance Report" > ./licenses/LICENSE-REPORT.md
-        echo "" >> ./licenses/LICENSE-REPORT.md
-        echo "**Generated:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> ./licenses/LICENSE-REPORT.md
-        echo "**Repository:** ${{ github.repository }}" >> ./licenses/LICENSE-REPORT.md
-        echo "**Commit:** ${{ github.sha }}" >> ./licenses/LICENSE-REPORT.md
-        echo "" >> ./licenses/LICENSE-REPORT.md
-        echo "---" >> ./licenses/LICENSE-REPORT.md
-        echo "" >> ./licenses/LICENSE-REPORT.md
-        echo "## NuGet Package Dependencies" >> ./licenses/LICENSE-REPORT.md
-        echo "" >> ./licenses/LICENSE-REPORT.md
-        dotnet list package --include-transitive >> ./licenses/LICENSE-REPORT.md || echo "Error generating package list" >> ./licenses/LICENSE-REPORT.md
-        echo "" >> ./licenses/LICENSE-REPORT.md
-        echo "---" >> ./licenses/LICENSE-REPORT.md
-        echo "" >> ./licenses/LICENSE-REPORT.md
-        echo "## Project Files Scanned" >> ./licenses/LICENSE-REPORT.md
-        echo "" >> ./licenses/LICENSE-REPORT.md
-        find . -name "*.csproj" -type f >> ./licenses/LICENSE-REPORT.md || echo "No project files found" >> ./licenses/LICENSE-REPORT.md
-      continue-on-error: true
-    
-    - name: Check for packages with known restrictive licenses
-      run: |
-        echo "Checking for packages with restrictive licenses..."
-        echo "" >> ./licenses/LICENSE-REPORT.md
-        echo "---" >> ./licenses/LICENSE-REPORT.md
-        echo "" >> ./licenses/LICENSE-REPORT.md
-        echo "## License Check Summary" >> ./licenses/LICENSE-REPORT.md
-        echo "" >> ./licenses/LICENSE-REPORT.md
-        
-        # Check for GPL and other restrictive licenses (basic check)
-        if grep -i "gpl\|lgpl\|agpl\|copyleft" ./licenses/packages.json 2>/dev/null; then
-          echo "⚠️ **WARNING:** Potentially restrictive licenses detected. Please review manually." >> ./licenses/LICENSE-REPORT.md
-          echo "⚠️ Found potentially restrictive licenses"
-        else
-          echo "✅ **INFO:** No obviously restrictive licenses detected in package metadata." >> ./licenses/LICENSE-REPORT.md
-          echo "✅ No obvious restrictive licenses found"
-        fi
-        
-        echo "" >> ./licenses/LICENSE-REPORT.md
-        echo "> **Note:** This is a basic automated check. Manual review is recommended for production use." >> ./licenses/LICENSE-REPORT.md
-        echo "> For detailed license information, visit the NuGet package pages or use a dedicated license scanning tool." >> ./licenses/LICENSE-REPORT.md
-      continue-on-error: true
-    
-    - name: Generate compliance summary
-      run: |
-        echo "" >> ./licenses/LICENSE-REPORT.md
-        echo "---" >> ./licenses/LICENSE-REPORT.md
-        echo "" >> ./licenses/LICENSE-REPORT.md
-        echo "## Compliance Actions" >> ./licenses/LICENSE-REPORT.md
-        echo "" >> ./licenses/LICENSE-REPORT.md
-        echo "- [ ] Review all package licenses" >> ./licenses/LICENSE-REPORT.md
-        echo "- [ ] Verify compatibility with project license" >> ./licenses/LICENSE-REPORT.md
-        echo "- [ ] Document any license exceptions" >> ./licenses/LICENSE-REPORT.md
-        echo "- [ ] Update NOTICE file if required" >> ./licenses/LICENSE-REPORT.md
-        echo "" >> ./licenses/LICENSE-REPORT.md
-        echo "For detailed license texts, visit:" >> ./licenses/LICENSE-REPORT.md
-        echo "- NuGet Package Pages: https://www.nuget.org/packages/" >> ./licenses/LICENSE-REPORT.md
-        echo "- License Information: Check individual package pages" >> ./licenses/LICENSE-REPORT.md
-    
-    - name: Upload license report
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: license-report
-        path: ./licenses
+    uses: ./.github/workflows/reusable-license.yml
+    with:
+      dotnet-version: ${{ env.DOTNET_VERSION }}
 
   # ============================================
-  # Integration Gate (all checks must pass)
+  # Integration Gate
   # ============================================
   integration-gate:
-    name: Integration Gate
+    name: Quality Gate
     runs-on: ubuntu-latest
     needs: 
       - build
-      - unit-tests
+      - test
       - code-quality
-      - dependency-security
-      - codeql-analysis
-      - secret-scanning
-      - license-compliance
+      - security
+      - license
     
     steps:
     - name: All checks passed
       run: |
-        echo "✅ All quality gates passed!"
-        echo "Build version: ${{ needs.build.outputs.version }}"
-        echo "Artifact: ${{ needs.build.outputs.artifact-name }}"
+        echo "### ✅ All Quality Gates Passed!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Build Version:** ${{ needs.build.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Artifact:** ${{ needs.build.outputs.artifact-name }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Ready for deployment! 🚀" >> $GITHUB_STEP_SUMMARY
 
   # ============================================
   # Deploy to Development
   # ============================================
   deploy-dev:
-    name: Deploy to Development
-    runs-on: ubuntu-latest
-    needs: integration-gate
+    name: Deploy to Dev
+    needs: 
+      - integration-gate
+      - build
     if: github.ref == 'refs/heads/develop' || startsWith(github.ref, 'refs/heads/feature/')
-    environment:
-      name: development
-      url: https://${{ env.AZURE_FUNCTIONAPP_NAME }}-dev.azurewebsites.net
-    
-    steps:
-    - name: Download artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: ${{ needs.build.outputs.artifact-name }}
-        path: ./artifact
-    
-    - name: Azure Login (OIDC)
-      uses: azure/login@v2
-      with:
-        client-id: ${{ secrets.AZURE_CLIENT_ID }}
-        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-    
-    - name: Deploy to Azure Functions (Dev)
-      uses: Azure/functions-action@v1
-      with:
-        app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}-dev
-        package: ./artifact
-        respect-funcignore: true
-    
-    - name: Smoke test
-      run: |
-        echo "Running smoke tests against dev environment..."
-        sleep 30 # Wait for deployment to complete
-        # Add your smoke test commands here
-        # curl -f https://${{ env.AZURE_FUNCTIONAPP_NAME }}-dev.azurewebsites.net/api/health || exit 1
+    uses: ./.github/workflows/reusable-deploy.yml
+    with:
+      environment: development
+      artifact-name: ${{ needs.build.outputs.artifact-name }}
+      function-app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
+      run-health-check: true
+      health-check-endpoint: /api/health
+    secrets:
+      azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+      azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+      azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
   # ============================================
   # Deploy to Staging
   # ============================================
   deploy-staging:
     name: Deploy to Staging
-    runs-on: ubuntu-latest
     needs: 
       - integration-gate
       - build
     if: github.ref == 'refs/heads/main'
-    environment:
-      name: staging
-      url: https://${{ env.AZURE_FUNCTIONAPP_NAME }}-staging.azurewebsites.net
-    
-    steps:
-    - name: Download artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: ${{ needs.build.outputs.artifact-name }}
-        path: ./artifact
-    
-    - name: Azure Login (OIDC)
-      uses: azure/login@v2
-      with:
-        client-id: ${{ secrets.AZURE_CLIENT_ID }}
-        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-    
-    - name: Deploy to Azure Functions (Staging)
-      uses: Azure/functions-action@v1
-      with:
-        app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}-staging
-        package: ./artifact
-        respect-funcignore: true
-    
-    - name: Run integration tests
-      run: |
-        echo "Running integration tests against staging..."
-        sleep 30
-        # Add your integration test commands here
+    uses: ./.github/workflows/reusable-deploy.yml
+    with:
+      environment: staging
+      artifact-name: ${{ needs.build.outputs.artifact-name }}
+      function-app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
+      run-health-check: true
+      health-check-endpoint: /api/health
+    secrets:
+      azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+      azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+      azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
   # ============================================
   # Deploy to Production
   # ============================================
   deploy-production:
     name: Deploy to Production
-    runs-on: ubuntu-latex
     needs: 
       - deploy-staging
       - build
     if: github.ref == 'refs/heads/main'
-    environment:
-      name: production
-      url: https://${{ env.AZURE_FUNCTIONAPP_NAME }}.azurewebsites.net
+    uses: ./.github/workflows/reusable-deploy.yml
+    with:
+      environment: production
+      artifact-name: ${{ needs.build.outputs.artifact-name }}
+      function-app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
+      run-health-check: true
+      health-check-endpoint: /api/health
+    secrets:
+      azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+      azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+      azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+  # ============================================
+  # Create Release
+  # ============================================
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: 
+      - deploy-production
+      - build
+    if: success() && github.ref == 'refs/heads/main'
     
     steps:
-    - name: Download artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: ${{ needs.build.outputs.artifact-name }}
-        path: ./artifact
-    
-    - name: Azure Login (OIDC)
-      uses: azure/login@v2
-      with:
-        client-id: ${{ secrets.AZURE_CLIENT_ID }}
-        tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-        subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-    
-    - name: Deploy to Azure Functions (Production)
-      uses: Azure/functions-action@v1
-      id: deploy
-      with:
-        app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
-        package: ./artifact
-        respect-funcignore: true
-    
-    - name: Health check
-      run: |
-        echo "Running health checks against production..."
-        sleep 30
-        # Add your health check commands here
-        # curl -f https://${{ env.AZURE_FUNCTIONAPP_NAME }}.azurewebsites.net/api/health || exit 1
-    
     - name: Create GitHub Release
-      if: success()
       uses: actions/create-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -644,93 +204,50 @@ jobs:
         tag_name: v${{ needs.build.outputs.version }}
         release_name: Release v${{ needs.build.outputs.version }}
         body: |
-          Production deployment successful
-          Version: ${{ needs.build.outputs.version }}
-          Commit: ${{ github.sha }}
+          ## Production Deployment Successful 🎉
+          
+          **Version:** ${{ needs.build.outputs.version }}
+          **Commit:** ${{ github.sha }}
+          **Deployed to:** Production
+          
+          ### Changes
+          View the commits included in this release.
         draft: false
         prerelease: false
 
   # ============================================
-  # Notification on Failure
+  # Notifications
   # ============================================
   notify-failure:
-    name: Notify on Failure
-    runs-on: ubuntu-latest
+    name: Notify Failure
     needs: 
       - build
-      - unit-tests
+      - test
       - code-quality
-      - dependency-security
-      - codeql-analysis
+      - security
+      - license
     if: failure()
-    
-    steps:
-    - name: Check if email notifications are configured
-      id: check-email
-      run: |
-        if [ -n "${{ secrets.SMTP_PASSWORD }}" ] && [ -n "${{ secrets.SMTP_TO }}" ] && [ -n "${{ secrets.SMTP_FROM }}" ]; then
-          echo "configured=true" >> $GITHUB_OUTPUT
-        else
-          echo "configured=false" >> $GITHUB_OUTPUT
-          echo "⚠️ Email notifications not configured. Skipping email notification."
-          echo "To enable: Set SMTP_PASSWORD, SMTP_TO, and SMTP_FROM secrets"
-        fi
-    
-    - name: Send failure notification via email
-      if: steps.check-email.outputs.configured == 'true'
-      uses: dawidd6/action-send-mail@v3
-      continue-on-error: true
-      with:
-        server_address: smtp.sendgrid.net
-        server_port: 587
-        username: apikey
-        password: ${{ secrets.SMTP_PASSWORD }}
-        subject: "❌ CI/CD Failure: ${{ github.workflow }} on ${{ github.ref }}"
-        to: ${{ secrets.SMTP_TO }}
-        from: ${{ secrets.SMTP_FROM }}
-        body: |
-          ❌ The CI/CD pipeline failed for ${{ github.repository }}
-          
-          Workflow: ${{ github.workflow }}
-          Branch: ${{ github.ref_name }}
-          Commit: ${{ github.sha }}
-          Triggered by: ${{ github.actor }}
-          
-          Failed Jobs:
-          ${{ toJSON(needs) }}
-          
-          📊 View logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          
-          Please investigate and resolve the issues.
-    
-    - name: Create GitHub Issue on failure
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const issue = await github.rest.issues.create({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            title: `❌ CI/CD Pipeline Failure: ${context.workflow} on ${context.ref}`,
-            body: `## Pipeline Failure Report
-            
-            **Workflow:** ${context.workflow}
-            **Branch:** ${context.ref}
-            **Commit:** ${context.sha}
-            **Triggered by:** ${context.actor}
-            **Run ID:** ${context.runId}
-            
-            ### Failed Jobs
-            \`\`\`json
-            ${{ toJSON(needs) }}
-            \`\`\`
-            
-            ### Action Required
-            Please investigate and resolve the issues.
-            
-            **View Logs:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            
-            ---
-            *This issue was automatically created by the CI/CD pipeline*`,
-            labels: ['ci-cd', 'automated', 'bug']
-          });
-          console.log(`Created issue #${issue.data.number}`);
+    uses: ./.github/workflows/reusable-notify.yml
+    with:
+      notification-type: failure
+      workflow-name: CI/CD Pipeline
+      create-issue: true
+    secrets:
+      smtp-password: ${{ secrets.SMTP_PASSWORD }}
+      smtp-to: ${{ secrets.SMTP_TO }}
+      smtp-from: ${{ secrets.SMTP_FROM }}
+
+  notify-success:
+    name: Notify Success
+    needs: 
+      - deploy-production
+    if: success() && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/reusable-notify.yml
+    with:
+      notification-type: success
+      workflow-name: CI/CD Pipeline
+      create-issue: false
+    secrets:
+      smtp-password: ${{ secrets.SMTP_PASSWORD }}
+      smtp-to: ${{ secrets.SMTP_TO }}
+      smtp-from: ${{ secrets.SMTP_FROM }}
