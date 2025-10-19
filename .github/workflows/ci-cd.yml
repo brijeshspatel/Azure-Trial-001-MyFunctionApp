@@ -128,12 +128,10 @@ jobs:
       environment: development
       artifact-name: ${{ needs.build.outputs.artifact-name }}
       function-app-name: 'MyFunctionApp'
-      function-app-url: ${{ secrets.AZURE_FUNCTION_APP_URL_DEV }}
       run-health-check: true
       health-check-endpoint: /api/health
     secrets:
-      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS_DEV }}
-      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID_DEV }}
+      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
 
   # ============================================
   # Deploy to Staging
@@ -149,12 +147,10 @@ jobs:
       environment: staging
       artifact-name: ${{ needs.build.outputs.artifact-name }}
       function-app-name: 'MyFunctionApp'
-      function-app-url: ${{ secrets.AZURE_FUNCTION_APP_URL_UAT }}
       run-health-check: true
       health-check-endpoint: /api/health
     secrets:
-      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS_UAT }}
-      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID_UAT }}
+      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
 
   # ============================================
   # Deploy to Production
@@ -170,12 +166,11 @@ jobs:
       environment: production
       artifact-name: ${{ needs.build.outputs.artifact-name }}
       function-app-name: 'MyFunctionApp'
-      function-app-url: ${{ secrets.AZURE_FUNCTION_APP_URL_PRD }}
       run-health-check: true
       health-check-endpoint: /api/health
     secrets:
-      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS_PRD }}
-      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID_PRD }}
+      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+
   # ============================================
   # Create Release
   # ============================================
