@@ -13,7 +13,7 @@ on:
         required: true
         type: string
       function-app-name:
-        description: 'Azure Function App name (without environment suffix)'
+        description: 'Azure Function App name (same across all environments)'
         required: true
         type: string
       run-health-check:
@@ -28,7 +28,13 @@ on:
         default: '/api/health'
     secrets:
       AZURE_CREDENTIALS:
-        description: 'Azure SDK auth JSON for Service Principal'
+        description: 'Azure SDK auth JSON for Service Principal (environment-specific)'
+        required: true
+      AZURE_SUBSCRIPTION_ID:
+        description: 'Azure Subscription ID for the target environment'
+        required: true
+      AZURE_FUNCTION_APP_URL:
+        description: 'Base URL for the Function App (environment-specific, e.g., https://myfunctionapp.azurewebsites.net)'
         required: true
 
 jobs:
@@ -37,18 +43,9 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: ${{ inputs.environment }}
-      url: https://${{ steps.get-app-name.outputs.full-name }}.azurewebsites.net
+      url: ${{ secrets.AZURE_FUNCTION_APP_URL }}
     
     steps:
-    - name: Determine full app name
-      id: get-app-name
-      run: |
-        if [ "${{ inputs.environment }}" == "production" ]; then
-          echo "full-name=${{ inputs.function-app-name }}" >> $GITHUB_OUTPUT
-        else
-          echo "full-name=${{ inputs.function-app-name }}-${{ inputs.environment }}" >> $GITHUB_OUTPUT
-        fi
-    
     - name: Download artifact
       uses: actions/download-artifact@v4
       with:
@@ -60,11 +57,46 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
     
+    - name: Set Azure Subscription
+      run: |
+        echo "Setting Azure subscription to: ${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+        az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+        
+        # Verify the subscription is set correctly
+        CURRENT_SUB=$(az account show --query id -o tsv)
+        echo "Current subscription: $CURRENT_SUB"
+        
+        # Get subscription name for logging
+        SUB_NAME=$(az account show --query name -o tsv)
+        echo "Subscription name: $SUB_NAME"
+        echo "### Deployment Target" >> $GITHUB_STEP_SUMMARY
+        echo "- **Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Subscription:** $SUB_NAME" >> $GITHUB_STEP_SUMMARY
+        echo "- **Subscription ID:** ${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Function App:** ${{ inputs.function-app-name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **URL:** ${{ secrets.AZURE_FUNCTION_APP_URL }}" >> $GITHUB_STEP_SUMMARY
+    
+    - name: Verify Function App exists
+      run: |
+        echo "Verifying Function App '${{ inputs.function-app-name }}' exists in subscription..."
+        
+        if az functionapp show --name "${{ inputs.function-app-name }}" --resource-group "$(az functionapp list --query "[?name=='${{ inputs.function-app-name }}'].resourceGroup" -o tsv)" &>/dev/null; then
+          echo "✅ Function App found"
+          RG=$(az functionapp list --query "[?name=='${{ inputs.function-app-name }}'].resourceGroup" -o tsv)
+          echo "Resource Group: $RG"
+          echo "resource-group=$RG" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Function App '${{ inputs.function-app-name }}' not found in subscription"
+          echo "Please ensure the Function App is created in the ${{ inputs.environment }} subscription before deploying."
+          exit 1
+        fi
+      id: verify-app
+    
     - name: Deploy to Azure Functions
       id: deploy
       uses: Azure/functions-action@v1
       with:
-        app-name: ${{ steps.get-app-name.outputs.full-name }}
+        app-name: ${{ inputs.function-app-name }}
         package: ./artifact
         respect-funcignore: true
     
@@ -78,7 +110,7 @@ jobs:
       if: inputs.run-health-check
       run: |
         echo "Running health check against ${{ inputs.environment }} environment..."
-        APP_URL="https://${{ steps.get-app-name.outputs.full-name }}.azurewebsites.net"
+        APP_URL="${{ secrets.AZURE_FUNCTION_APP_URL }}"
         
         # Try health check endpoint if provided
         if [ -n "${{ inputs.health-check-endpoint }}" ]; then
@@ -98,7 +130,7 @@ jobs:
         echo "### Deployment Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "- **Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Function App:** ${{ steps.get-app-name.outputs.full-name }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **URL:** https://${{ steps.get-app-name.outputs.full-name }}.azurewebsites.net" >> $GITHUB_STEP_SUMMARY
+        echo "- **Function App:** ${{ inputs.function-app-name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **URL:** ${{ secrets.AZURE_FUNCTION_APP_URL }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Artifact:** ${{ inputs.artifact-name }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Status:** ✅ Deployed successfully" >> $GITHUB_STEP_SUMMARY

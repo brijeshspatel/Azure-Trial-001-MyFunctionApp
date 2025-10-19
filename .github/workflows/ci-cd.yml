@@ -131,7 +131,9 @@ jobs:
       run-health-check: true
       health-check-endpoint: /api/health
     secrets:
-      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS_DEV }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID_DEV }}
+      AZURE_FUNCTION_APP_URL: ${{ secrets.AZURE_FUNCTION_APP_URL_DEV }}
 
   # ============================================
   # Deploy to Staging
@@ -150,7 +152,9 @@ jobs:
       run-health-check: true
       health-check-endpoint: /api/health
     secrets:
-      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS_UAT }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID_UAT }}
+      AZURE_FUNCTION_APP_URL: ${{ secrets.AZURE_FUNCTION_APP_URL_UAT }}
 
   # ============================================
   # Deploy to Production
@@ -169,8 +173,9 @@ jobs:
       run-health-check: true
       health-check-endpoint: /api/health
     secrets:
-      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
-
+      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS_PRD }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID_PRD }}
+      AZURE_FUNCTION_APP_URL: ${{ secrets.AZURE_FUNCTION_APP_URL_PRD }}
   # ============================================
   # Create Release
   # ============================================
