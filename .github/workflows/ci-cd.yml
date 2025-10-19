@@ -127,7 +127,7 @@ jobs:
     with:
       environment: development
       artifact-name: ${{ needs.build.outputs.artifact-name }}
-      function-app-name: 'myazurefunctionapp'
+      function-app-name: 'MyFunctionApp'
       run-health-check: true
       health-check-endpoint: /api/health
     secrets:
@@ -146,7 +146,7 @@ jobs:
     with:
       environment: staging
       artifact-name: ${{ needs.build.outputs.artifact-name }}
-      function-app-name: 'myazurefunctionapp'
+      function-app-name: 'MyFunctionApp'
       run-health-check: true
       health-check-endpoint: /api/health
     secrets:
@@ -165,7 +165,7 @@ jobs:
     with:
       environment: production
       artifact-name: ${{ needs.build.outputs.artifact-name }}
-      function-app-name: 'myazurefunctionapp'
+      function-app-name: 'MyFunctionApp'
       run-health-check: true
       health-check-endpoint: /api/health
     secrets:
