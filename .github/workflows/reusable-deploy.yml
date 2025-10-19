@@ -27,14 +27,8 @@ on:
         type: string
         default: '/api/health'
     secrets:
-      azure-client-id:
-        description: 'Azure Client ID for OIDC'
-        required: true
-      azure-tenant-id:
-        description: 'Azure Tenant ID for OIDC'
-        required: true
-      azure-subscription-id:
-        description: 'Azure Subscription ID for OIDC'
+      AZURE_CREDENTIALS:
+        description: 'Azure SDK auth JSON for Service Principal'
         required: true
 
 jobs:
@@ -62,11 +56,9 @@ jobs:
         path: ./artifact
     
     - name: Azure Login (OIDC)
-      uses: azure/login@v2
+      uses: azure/login@v1
       with:
-        client-id: ${{ secrets.azure-client-id }}
-        tenant-id: ${{ secrets.azure-tenant-id }}
-        subscription-id: ${{ secrets.azure-subscription-id }}
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
     
     - name: Deploy to Azure Functions
       id: deploy
