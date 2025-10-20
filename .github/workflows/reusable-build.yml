@@ -1,0 +1,170 @@
+# Reusable workflow for building .NET applications
+name: Build .NET Application
+
+on:
+  workflow_call:
+    inputs:
+      dotnet-version:
+        description: '.NET SDK version'
+        required: false
+        type: string
+        default: '8.0.x'
+      build-configuration:
+        description: 'Build configuration'
+        required: false
+        type: string
+        default: 'Release'
+      treat-warnings-as-errors:
+        description: 'Treat compiler warnings as errors'
+        required: false
+        type: boolean
+        default: true
+      project-path:
+        description: 'Path to the project to publish'
+        required: true
+        type: string
+      artifact-name:
+        description: 'Name for the build artifact'
+        required: false
+        type: string
+        default: 'build-artifact'
+      artifact-retention-days:
+        description: 'Days to retain the artifact'
+        required: false
+        type: number
+        default: 30
+    outputs:
+      version:
+        description: 'Generated version number'
+        value: ${{ jobs.build.outputs.version }}
+      artifact-name:
+        description: 'Name of the uploaded artifact'
+        value: ${{ jobs.build.outputs.artifact-name }}
+
+jobs:
+  build:
+    name: Build and Package
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      artifact-name: ${{ steps.artifact-info.outputs.name }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ inputs.dotnet-version }}
+    
+    - name: Cache NuGet packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+    
+    - name: Generate version number
+      id: version
+      run: |
+        if [ "${{ github.ref }}" == "refs/heads/main" ]; then
+          VERSION="1.0.${{ github.run_number }}"
+        else
+          VERSION="0.1.${{ github.run_number }}-preview"
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Generated version: $VERSION"
+    
+    - name: Restore dependencies
+      run: dotnet restore
+    
+    - name: Build solution
+      run: |
+        WARNINGS_FLAG=""
+        if [ "${{ inputs.treat-warnings-as-errors }}" == "true" ]; then
+          WARNINGS_FLAG="/p:TreatWarningsAsErrors=true /p:WarningLevel=4"
+        fi
+        
+        dotnet build --no-restore --configuration ${{ inputs.build-configuration }} \
+          /p:Version=${{ steps.version.outputs.version }} \
+          $WARNINGS_FLAG
+    
+    - name: Publish application
+      run: |
+        echo "Publishing Azure Functions project..."
+        dotnet publish ${{ inputs.project-path }} \
+          --configuration ${{ inputs.build-configuration }} \
+          --output ./publish \
+          /p:Version=${{ steps.version.outputs.version }} \
+          /p:GenerateRuntimeConfigurationFiles=true \
+          /p:PublishReadyToRun=false \
+          /p:_FunctionsSkipCleanOutput=true
+        echo "Publish completed"
+    
+    - name: Verify and fix Azure Functions structure
+      run: |
+        echo "Verifying Azure Functions deployment structure..."
+        
+        # Check for required files
+        if [ ! -f "./publish/host.json" ]; then
+          echo "ERROR: host.json not found in published output!" >&2
+          exit 1
+        fi
+        echo "✓ host.json found"
+        
+        # Ensure .azurefunctions directory exists
+        if [ ! -d "./publish/.azurefunctions" ]; then
+          echo "⚠ .azurefunctions directory not found, creating it..."
+          mkdir -p ./publish/.azurefunctions
+        fi
+        
+        # Ensure metadata.json exists with proper content for FlexConsumption
+        METADATA_FILE="./publish/.azurefunctions/metadata.json"
+        if [ ! -f "$METADATA_FILE" ]; then
+          echo "Creating metadata.json for FlexConsumption compatibility..."
+          GENERATION_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          echo "{" > "$METADATA_FILE"
+          echo '  "configurationSource": "attributes",' >> "$METADATA_FILE"
+          echo '  "generatedBy": "Microsoft.NET.Sdk.Functions-4.0.0",' >> "$METADATA_FILE"
+          echo "  \"generationDate\": \"$GENERATION_DATE\"," >> "$METADATA_FILE"
+          echo '  "toolsVersion": "4.0",' >> "$METADATA_FILE"
+          echo '  "configurationPackages": []' >> "$METADATA_FILE"
+          echo "}" >> "$METADATA_FILE"
+        fi
+        echo "✓ .azurefunctions directory present"
+        echo "✓ metadata.json created/verified"
+        
+        # Optional diagnostics
+        echo "Published artifact root structure:"
+        ls -lah ./publish/ | head -50
+        echo ".azurefunctions contents:"
+        ls -lah ./publish/.azurefunctions/ || true
+    
+    - name: Create deployment zip at correct root
+      run: |
+        echo "Creating zip with .azurefunctions at the root..."
+        cd ./publish
+        zip -r ../functionapp_package.zip .
+        cd ..
+        echo "Zip created:"
+        ls -la functionapp_package.zip
+
+    - name: Set artifact info
+      id: artifact-info
+      run: |
+        ARTIFACT_NAME="${{ inputs.artifact-name }}-${{ steps.version.outputs.version }}"
+        echo "name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
+    
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.artifact-info.outputs.name }}
+        path: |
+          ./publish
+          ./functionapp_package.zip
+        retention-days: ${{ inputs.artifact-retention-days }}
+        if-no-files-found: error

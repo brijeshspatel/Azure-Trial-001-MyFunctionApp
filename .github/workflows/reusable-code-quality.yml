@@ -1,0 +1,69 @@
+# Reusable workflow for code quality checks
+name: Code Quality Analysis
+
+on:
+  workflow_call:
+    inputs:
+      dotnet-version:
+        description: '.NET SDK version'
+        required: false
+        type: string
+        default: '8.0.x'
+      fail-on-format-errors:
+        description: 'Fail the workflow if format issues are found'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  code-quality:
+    name: Code Quality Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ inputs.dotnet-version }}
+    
+    - name: Restore dependencies
+      run: dotnet restore
+    
+    - name: Install dotnet format
+      run: dotnet tool install -g dotnet-format
+    
+    - name: Run dotnet format
+      id: format-check
+      run: dotnet format --verify-no-changes --verbosity diagnostic
+      continue-on-error: ${{ !inputs.fail-on-format-errors }}
+    
+    - name: Run dotnet format (report only)
+      if: failure() || steps.format-check.outcome == 'failure'
+      run: dotnet format --verify-no-changes --report ./format-report.json
+      continue-on-error: true
+    
+    - name: Upload format report
+      if: failure() || steps.format-check.outcome == 'failure'
+      uses: actions/upload-artifact@v4
+      with:
+        name: format-report
+        path: ./format-report.json
+    
+    - name: Format check summary
+      if: always()
+      run: |
+        if [ "${{ steps.format-check.outcome }}" == "success" ]; then
+          echo "✅ Code formatting is correct"
+        else
+          echo "⚠️ Code formatting issues detected"
+          if [ "${{ inputs.fail-on-format-errors }}" == "true" ]; then
+            echo "Build will fail due to format errors"
+          else
+            echo "Build continues despite format errors"
+          fi
+        fi

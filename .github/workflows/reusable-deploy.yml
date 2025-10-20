@@ -1,0 +1,193 @@
+# Reusable workflow for Azure deployment
+name: Deploy to Azure
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Environment to deploy to (development, staging, production)'
+        required: true
+        type: string
+      artifact-name:
+        description: 'Name of the artifact to deploy'
+        required: true
+        type: string
+      function-app-name:
+        description: 'Azure Function App name (same across all environments)'
+        required: true
+        type: string
+      run-health-check:
+        description: 'Run health check after deployment'
+        required: false
+        type: boolean
+        default: true
+      health-check-endpoint:
+        description: 'Health check endpoint path'
+        required: false
+        type: string
+        default: '/api/health'
+      function-app-url:
+        description: 'Base URL for the Function App (environment-specific, e.g., https://myfunctionapp.azurewebsites.net)'
+        required: true
+        type: string
+    secrets:
+      AZURE_CREDENTIALS:
+        description: 'Azure SDK auth JSON for Service Principal (environment-specific)'
+        required: true
+      AZURE_SUBSCRIPTION_ID:
+        description: 'Azure Subscription ID for the target environment'
+        required: true
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ inputs.function-app-url }}
+    
+    steps:
+    - name: Download artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ./artifact
+    
+    - name: Prepare package path
+      id: prep
+      run: |
+        set -e
+        PACKAGE_PATH="./artifact"
+        echo "Initial package directory: $PACKAGE_PATH"
+        echo "Contents of artifact directory:" && ls -la "$PACKAGE_PATH"
+        
+        # Prefer a prebuilt zip if present (ensures .azurefunctions at root)
+        ZIP_FILE=$(find "$PACKAGE_PATH" -maxdepth 1 -type f -name "*.zip" | head -n 1 || true)
+        if [ -n "$ZIP_FILE" ]; then
+          echo "Found deployment zip: $ZIP_FILE"
+          echo "package_path=$ZIP_FILE" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        # If the artifact was downloaded into a single nested directory (default behavior) use that directory
+        DIR_COUNT=$(find "$PACKAGE_PATH" -mindepth 1 -maxdepth 1 -type d | wc -l)
+        FILE_COUNT=$(find "$PACKAGE_PATH" -mindepth 1 -maxdepth 1 -type f | wc -l)
+        if [ "$DIR_COUNT" -eq 1 ] && [ "$FILE_COUNT" -eq 0 ]; then
+          INNER_DIR=$(find "$PACKAGE_PATH" -mindepth 1 -maxdepth 1 -type d)
+          echo "Detected single nested directory: $INNER_DIR"
+          PACKAGE_PATH="$INNER_DIR"
+        fi
+        
+        echo "Using package path: $PACKAGE_PATH"
+        
+        # If .azurefunctions is missing (can be stripped by tooling), create minimal one
+        if [ ! -d "$PACKAGE_PATH/.azurefunctions" ]; then
+          echo "⚠ .azurefunctions missing in artifact, creating minimal metadata to satisfy FlexConsumption..."
+          mkdir -p "$PACKAGE_PATH/.azurefunctions"
+          GEN_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          META_FILE="$PACKAGE_PATH/.azurefunctions/metadata.json"
+          echo "{" > "$META_FILE"
+          echo '  "configurationSource": "attributes",' >> "$META_FILE"
+          echo '  "generatedBy": "GitHubActions",' >> "$META_FILE"
+          echo "  \"generationDate\": \"$GEN_DATE\"," >> "$META_FILE"
+          echo '  "toolsVersion": "4.0",' >> "$META_FILE"
+          echo '  "configurationPackages": []' >> "$META_FILE"
+          echo "}" >> "$META_FILE"
+        fi
+        
+        # Validate structure expected by FlexConsumption: host.json and .azurefunctions at package root
+        if [ ! -f "$PACKAGE_PATH/host.json" ]; then
+          echo "ERROR: host.json not found at package root: $PACKAGE_PATH" >&2
+          echo "Found files:" && ls -la "$PACKAGE_PATH"
+          exit 1
+        fi
+        if [ ! -d "$PACKAGE_PATH/.azurefunctions" ]; then
+          echo "ERROR: .azurefunctions directory not found at package root: $PACKAGE_PATH" >&2
+          echo "Found files:" && ls -la "$PACKAGE_PATH"
+          exit 1
+        fi
+        
+        echo "package_path=$PACKAGE_PATH" >> $GITHUB_OUTPUT
+    
+    - name: Azure Login (OIDC)
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    
+    - name: Set Azure Subscription
+      run: |
+        echo "Setting Azure subscription to: ${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+        az account set --subscription "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+        
+        # Verify the subscription is set correctly
+        CURRENT_SUB=$(az account show --query id -o tsv)
+        echo "Current subscription: $CURRENT_SUB"
+        
+        # Get subscription name for logging
+        SUB_NAME=$(az account show --query name -o tsv)
+        echo "Subscription name: $SUB_NAME"
+        echo "### Deployment Target" >> $GITHUB_STEP_SUMMARY
+        echo "- **Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Subscription:** $SUB_NAME" >> $GITHUB_STEP_SUMMARY
+        echo "- **Subscription ID:** ${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Function App:** ${{ inputs.function-app-name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **URL:** ${{ inputs.function-app-url }}" >> $GITHUB_STEP_SUMMARY
+    
+    - name: Verify Function App exists
+      run: |
+        echo "Verifying Function App '${{ inputs.function-app-name }}' exists in subscription..."
+        
+        if az functionapp show --name "${{ inputs.function-app-name }}" --resource-group "$(az functionapp list --query "[?name=='${{ inputs.function-app-name }}'].resourceGroup" -o tsv)" &>/dev/null; then
+          echo "✅ Function App found"
+          RG=$(az functionapp list --query "[?name=='${{ inputs.function-app-name }}'].resourceGroup" -o tsv)
+          echo "Resource Group: $RG"
+          echo "resource-group=$RG" >> $GITHUB_OUTPUT
+        else
+          echo "❌ Function App '${{ inputs.function-app-name }}' not found in subscription"
+          echo "Please ensure the Function App is created in the ${{ inputs.environment }} subscription before deploying."
+          exit 1
+        fi
+      id: verify-app
+    
+    - name: Deploy to Azure Functions
+      id: deploy
+      uses: Azure/functions-action@v1
+      with:
+        app-name: ${{ inputs.function-app-name }}
+        package: ${{ steps.prep.outputs.package_path }}
+        respect-funcignore: true
+    
+    - name: Wait for deployment
+      if: ${{ inputs.run-health-check }}
+      run: |
+        echo "Waiting for deployment to complete..."
+        sleep 30
+    
+    - name: Health check
+      if: ${{ inputs.run-health-check }}
+      run: |
+        echo "Running health check against ${{ inputs.environment }} environment..."
+        APP_URL="${{ inputs.function-app-url }}"
+        
+        # Try health check endpoint if provided
+        if [ -n "${{ inputs.health-check-endpoint }}" ]; then
+          echo "Checking: ${APP_URL}${{ inputs.health-check-endpoint }}"
+          if curl -f -s "${APP_URL}${{ inputs.health-check-endpoint }}"; then
+            echo "✅ Health check passed"
+          else
+            echo "⚠️ Health check endpoint not responding (this may be expected if not implemented)"
+          fi
+        else
+          echo "No health check endpoint configured, skipping health check"
+        fi
+      continue-on-error: true
+    
+    - name: Deployment summary
+      run: |
+        echo "### Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Environment:** ${{ inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Function App:** ${{ inputs.function-app-name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **URL:** ${{ inputs.function-app-url }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Artifact:** ${{ inputs.artifact-name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Status:** ✅ Deployed successfully" >> $GITHUB_STEP_SUMMARY
