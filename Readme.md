@@ -1,5 +1,6 @@
 # Azure Trial Function App
 
+![Version](https://img.shields.io/badge/Version-1.1.1-blue)
 ![CI/CD Pipeline](https://github.com/brijeshspatel/Azure-Trial-001-MyFunctionApp/actions/workflows/ci-cd.yml/badge.svg)
 
 This repository contains a sample Azure Functions application built with C# 12 and .NET 8, demonstrating a simple HTTP-triggered function. The solution includes unit tests using xUnit, Moq, and AutoFixture.
